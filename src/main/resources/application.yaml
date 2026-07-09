@@ -6,9 +6,9 @@ spring:
     name: pnc-parcial-final-hotel
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/hotel_reservas_db
-    username: postgres
-    password: greninja1207
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/hotel_reservas_db}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:admin}
     driver-class-name: org.postgresql.Driver
 
   jpa:
@@ -17,3 +17,11 @@ spring:
     hibernate:
       ddl-auto: update
     show-sql: true
+
+# Access Token corto (15 min por defecto) / Refresh Token largo (7 días por defecto).
+# El secret de abajo es SOLO para desarrollo local. En Docker/producción se sobreescribe
+# con la variable de entorno JWT_SECRET (ver docker-compose.yml y .env.example).
+jwt:
+  secret: ${JWT_SECRET:Pk93JKG/RLu3LTl1EZKDp4vH3EUnnl5++ZnwBeuePcQ=}
+  access-token-expiration: ${JWT_ACCESS_EXPIRATION:900000}
+  refresh-token-expiration: ${JWT_REFRESH_EXPIRATION:604800000}

@@ -6,6 +6,7 @@ import com.uca.pncparcialfinalhotel.service.SucursalService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
@@ -17,7 +18,9 @@ public class SucursalController {
 
     private final SucursalService sucursalService;
 
+    // Gestión estructural del hotel (crear/editar/borrar sucursales): solo ADMIN.
     @PostMapping
+    @PreAuthorize("hasRole('ADMINISTRADOR')")
     public ResponseEntity<GeneralResponse> crear(@Valid @RequestBody SucursalDTORequest dto) {
         return ResponseEntity.ok(GeneralResponse.builder()
                 .data(sucursalService.crear(dto))
@@ -25,6 +28,8 @@ public class SucursalController {
                 .build());
     }
 
+    // Lectura: cualquier rol autenticado (ADMIN, RECEPCIONISTA o HUESPED) puede consultar
+    // sucursales; no es información sensible.
     @GetMapping
     public ResponseEntity<GeneralResponse> listar() {
         return ResponseEntity.ok(GeneralResponse.builder()
@@ -42,6 +47,7 @@ public class SucursalController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMINISTRADOR')")
     public ResponseEntity<GeneralResponse> actualizar(@PathVariable UUID id, @Valid @RequestBody SucursalDTORequest dto) {
         return ResponseEntity.ok(GeneralResponse.builder()
                 .data(sucursalService.actualizar(id, dto))
@@ -50,6 +56,7 @@ public class SucursalController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMINISTRADOR')")
     public ResponseEntity<GeneralResponse> eliminar(@PathVariable UUID id) {
         sucursalService.eliminar(id);
         return ResponseEntity.ok(GeneralResponse.builder()

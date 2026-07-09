@@ -2,6 +2,7 @@ plugins {
     id 'java'
     id 'org.springframework.boot' version '4.1.0'
     id 'io.spring.dependency-management' version '1.1.7'
+    id 'org.owasp.dependencycheck' version '10.0.4'
 }
 
 group = 'com.uca'
@@ -19,6 +20,13 @@ repositories {
 }
 
 dependencies {
+    // Source: https://mvnrepository.com/artifact/io.jsonwebtoken/jjwt-api
+    implementation("io.jsonwebtoken:jjwt-api:0.12.6")
+    // Source: https://mvnrepository.com/artifact/io.jsonwebtoken/jjwt-impl
+    runtimeOnly("io.jsonwebtoken:jjwt-impl:0.12.6")
+    // Source: https://mvnrepository.com/artifact/io.jsonwebtoken/jjwt-jackson
+    runtimeOnly("io.jsonwebtoken:jjwt-jackson:0.12.6")
+
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
@@ -31,6 +39,7 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-validation-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+    testImplementation 'org.springframework.security:spring-security-test'
     testCompileOnly 'org.projectlombok:lombok'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     testAnnotationProcessor 'org.projectlombok:lombok'
@@ -38,4 +47,16 @@ dependencies {
 
 tasks.named('test') {
     useJUnitPlatform()
+}
+
+// Parte X (CI/CD): falla el build si hay una vulnerabilidad CRÍTICA (CVSS >= 9.0)
+// en alguna dependencia. Necesita una NVD API key gratuita para no ir muy lento
+// en el primer análisis: https://nvd.nist.gov/developers/request-an-api-key
+// Se pasa como variable de entorno NVD_API_KEY (ver .github/workflows/ci.yml).
+dependencyCheck {
+    nvd {
+        apiKey = System.getenv('NVD_API_KEY')
+    }
+    failBuildOnCVSS = 9.0
+    formats = ['HTML', 'JSON']
 }

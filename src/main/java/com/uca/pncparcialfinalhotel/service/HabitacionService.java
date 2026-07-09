@@ -4,6 +4,8 @@ import com.uca.pncparcialfinalhotel.dto.request.HabitacionDTORequest;
 import com.uca.pncparcialfinalhotel.dto.response.HabitacionDTOResponse;
 import com.uca.pncparcialfinalhotel.entities.Habitacion;
 import com.uca.pncparcialfinalhotel.entities.Sucursal;
+import com.uca.pncparcialfinalhotel.entities.Usuario;
+import com.uca.pncparcialfinalhotel.entities.enums.RolUsuario;
 import com.uca.pncparcialfinalhotel.exception.ResourceNotFoundException;
 import com.uca.pncparcialfinalhotel.repository.HabitacionRepository;
 import com.uca.pncparcialfinalhotel.utils.HabitacionMapper;
@@ -19,7 +21,10 @@ public class HabitacionService {
 
     private final HabitacionRepository habitacionRepository;
     private final SucursalService sucursalService;
+    private final AutorizacionRecursoService autorizacionRecursoService;
 
+    // Solo ADMIN llega aquí (@PreAuthorize en el controller), así que no hace falta
+    // validar sucursal al crear.
     public HabitacionDTOResponse crear(HabitacionDTORequest dto) {
         Sucursal sucursal = sucursalService.buscarSucursalOrThrow(dto.sucursalId());
         Habitacion habitacion = habitacionRepository.save(HabitacionMapper.toEntity(dto, sucursal));
@@ -42,19 +47,30 @@ public class HabitacionService {
         return HabitacionMapper.toResponse(buscarHabitacionOrThrow(id));
     }
 
-    public HabitacionDTOResponse actualizar(UUID id, HabitacionDTORequest dto) {
+    // Opción B en acción: un ADMIN puede editar cualquier habitación (incluyendo
+    // reasignarla a otra sucursal); un RECEPCIONISTA solo puede editar habitaciones
+    // de SU propia sucursal, y no puede reasignarlas a otra (se ignora dto.sucursalId()
+    // en ese caso, se mantiene la sucursal original).
+    public HabitacionDTOResponse actualizar(UUID id, HabitacionDTORequest dto, Usuario usuarioAutenticado) {
         Habitacion habitacion = buscarHabitacionOrThrow(id);
-        Sucursal sucursal = sucursalService.buscarSucursalOrThrow(dto.sucursalId());
+
+        autorizacionRecursoService.verificarSucursalDeRecepcionista(usuarioAutenticado, habitacion.getSucursal().getId());
+
+        Sucursal sucursalDestino = habitacion.getSucursal();
+        if (usuarioAutenticado.getRol() == RolUsuario.ADMINISTRADOR) {
+            sucursalDestino = sucursalService.buscarSucursalOrThrow(dto.sucursalId());
+        }
 
         habitacion.setNumero(dto.numero());
         habitacion.setTipo(dto.tipo());
         habitacion.setPrecio(dto.precio());
         habitacion.setDisponible(dto.disponible());
-        habitacion.setSucursal(sucursal);
+        habitacion.setSucursal(sucursalDestino);
 
         return HabitacionMapper.toResponse(habitacionRepository.save(habitacion));
     }
 
+    // Solo ADMIN llega aquí (@PreAuthorize en el controller).
     public void eliminar(UUID id) {
         Habitacion habitacion = buscarHabitacionOrThrow(id);
         habitacionRepository.delete(habitacion);

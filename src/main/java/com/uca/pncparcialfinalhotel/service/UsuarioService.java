@@ -24,16 +24,32 @@ public class UsuarioService {
     private final SucursalService sucursalService;
     private final PasswordEncoder passwordEncoder;
 
-    public UsuarioDTOResponse registrar(UsuarioDTORequest dto) {
+    // Endpoint público (/register): cualquier persona puede autoregistrarse, pero
+    // SIEMPRE como HUESPED. El rol que venga en el body se ignora a propósito:
+    // si no, cualquiera podría autoregistrarse como ADMINISTRADOR.
+    public UsuarioDTOResponse registrarComoHuesped(UsuarioDTORequest dto) {
+        return registrarInterno(dto, RolUsuario.HUESPED);
+    }
+
+    // Endpoint protegido (solo ADMINISTRADOR, ver @PreAuthorize en el controller):
+    // aquí sí se respeta el rol del body, para poder crear otros admins o recepcionistas.
+    public UsuarioDTOResponse crear(UsuarioDTORequest dto) {
+        return registrarInterno(dto, dto.rol());
+    }
+
+    private UsuarioDTOResponse registrarInterno(UsuarioDTORequest dto, RolUsuario rolFinal) {
         if (usuarioRepository.existsByUsername(dto.username())) {
             throw new BusinessRuleException("El username '" + dto.username() + "' ya está en uso");
         }
         if (usuarioRepository.existsByEmail(dto.email())) {
             throw new BusinessRuleException("El email '" + dto.email() + "' ya está registrado");
         }
+        if (rolFinal == null) {
+            throw new BusinessRuleException("El rol es obligatorio");
+        }
 
         Sucursal sucursal = null;
-        if (dto.rol() == RolUsuario.RECEPCIONISTA) {
+        if (rolFinal == RolUsuario.RECEPCIONISTA) {
             if (dto.sucursalId() == null) {
                 throw new BusinessRuleException("Un Recepcionista debe tener una sucursal asignada");
             }
@@ -41,7 +57,7 @@ public class UsuarioService {
         }
 
         String encodedPassword = passwordEncoder.encode(dto.password());
-        Usuario usuario = usuarioRepository.save(UsuarioMapper.toEntity(dto, encodedPassword, sucursal));
+        Usuario usuario = usuarioRepository.save(UsuarioMapper.toEntity(dto, encodedPassword, sucursal, rolFinal));
         return UsuarioMapper.toResponse(usuario);
     }
 
@@ -65,7 +81,7 @@ public class UsuarioService {
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado con id " + id));
     }
 
-    // Se usará en la Parte V para el UserDetailsService (login) y el filtro JWT.
+    // Usado por UserDetailsServiceImpl (login) y JwtAuthFilter (cada request autenticado).
     public Usuario buscarPorUsernameOrThrow(String username) {
         return usuarioRepository.findByUsername(username)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado: " + username));

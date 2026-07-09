@@ -25,6 +25,12 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, ex.getMessage(), null);
     }
 
+    // Regla de negocio no trivial (Opción B, sección 2.3) + ownership de Huésped (sección 2.2).
+    @ExceptionHandler(RecursoNoAutorizadoException.class)
+    public ResponseEntity<ApiError> handleRecursoNoAutorizado(RecursoNoAutorizadoException ex) {
+        return build(HttpStatus.FORBIDDEN, ex.getMessage(), null);
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiError> handleValidation(MethodArgumentNotValidException ex) {
         Map<String, String> errors = ex.getBindingResult().getFieldErrors().stream()
@@ -36,13 +42,13 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, "Error de validación", errors);
     }
 
-    // No aplica todavía (no hay JWT hasta la Parte V-VI), pero la dejamos lista desde ya.
+    // Se dispara cuando @PreAuthorize rechaza a un usuario autenticado con el rol incorrecto.
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ApiError> handleAccessDenied(AccessDeniedException ex) {
         return build(HttpStatus.FORBIDDEN, "No tienes permisos para realizar esta acción", null);
     }
 
-    // Idem: se activa cuando el login (Parte V) use AuthenticationManager.
+    // Se dispara en POST /auth/login cuando el username/password no coinciden.
     @ExceptionHandler(BadCredentialsException.class)
     public ResponseEntity<ApiError> handleBadCredentials(BadCredentialsException ex) {
         return build(HttpStatus.UNAUTHORIZED, "Usuario o contraseña incorrectos", null);

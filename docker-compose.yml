@@ -1,0 +1,38 @@
+services:
+  db:
+    image: postgres:17
+    container_name: hotel-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: hotel_reservas_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: admin
+    ports:
+      - "5432:5432"
+    volumes:
+      - hotel_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d hotel_reservas_db" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    container_name: hotel-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/hotel_reservas_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: admin
+      JWT_SECRET: ${JWT_SECRET:-Pk93JKG/RLu3LTl1EZKDp4vH3EUnnl5++ZnwBeuePcQ=}
+      JWT_ACCESS_EXPIRATION: ${JWT_ACCESS_EXPIRATION:-900000}
+      JWT_REFRESH_EXPIRATION: ${JWT_REFRESH_EXPIRATION:-604800000}
+    ports:
+      - "8080:8080"
+
+volumes:
+  hotel_pgdata:
