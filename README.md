@@ -1,135 +1,135 @@
-# Parcial Final — Programación N-Capas: Sistema de Reservas de Hotel
+# Sistema de Reservas de Hotel — API
 
-## Parte 2 (50% Global del Parcial)
+API backend N-Capas para un sistema de reservas de una cadena hotelera con varias
+sucursales, con autenticación JWT (Access + Refresh Token), autorización por rol y
+por sucursal, Docker y CI/CD con GitHub Actions.
 
-- **Unidad:** Seguridad (Autenticación, Autorización, JWT, Roles, Docker, GitHub Actions CI/CD)
-  **Modalidad:** Individual o en parejas (lo definiré según el grupo)
-- **Uso de Inteligencia Artificial:** Permitido y obligatorio como parte de la evaluación
-
----
-
-## Introducción
-
-Para el parcial final deberan construir una API para un **sistema de reservas de hotel**. No busco que memoricen sintaxis de JWT ni que me repitan un tutorial: quiero ver que son capaces de usar IA como una herramienta de trabajo real, entendiendo y defendiendo por escrito cada decisión de seguridad que tomaron, tal como lo harían en un entorno profesional.
-
-Van a poder apoyarse en ChatGPT, Claude, Copilot o la herramienta que prefieran durante todo el desarrollo. Lo que voy a calificar no es si "les salió", sino si entienden lo que la IA les generó, si lo adaptaron correctamente al caso de negocio que les planteo, y si pueden demostrarlo con evidencia.
+> Este proyecto corresponde al Parcial Final de la Unidad de Seguridad. Las
+> instrucciones originales del profesor están en `ENUNCIADO.md`.
 
 ---
 
-## 1. Sistema de Reservas de Hotel
+## 1. Cómo levantar el proyecto
 
-Desarrollar un proyecto backend de un sistema donde distintos usuarios interactúan con la disponibilidad y reservas de habitaciones de una cadena hotelera con varias sucursales.
+### Requisitos
+- Docker y Docker Compose instalados. Nada más — ni Java, ni Postgres, ni Gradle
+  necesitan estar instalados localmente.
 
-Entidades mínimas:
+### Pasos
 
-- **Hotel/Sucursal** (el sistema maneja más de una sucursal)
-- **Habitación** (pertenece a una sucursal, tiene tipo, precio y disponibilidad)
-- **Reserva** (asociada a un huésped, una habitación y un rango de fechas)
-- **Usuario** (con rol asignado)
+```bash
+# 1. (Opcional) copia el archivo de variables de entorno de ejemplo
+cp .env.example .env
 
-Quiero que la arquitectura respete el enfoque N-Capas que hemos visto en clase (Presentación / Lógica de Negocio / Acceso a Datos, como mínimo).
+# 2. Levanta todo (API + base de datos) con un solo comando
+docker-compose up
+```
+
+Con eso:
+- Postgres queda escuchando en `localhost:5432` (usuario `postgres`, password `admin`,
+  base de datos `hotel_reservas_db`).
+- La API queda escuchando en `http://localhost:8080`.
+- Las tablas se crean solas al arrancar (`ddl-auto: update`), no hace falta correr
+  ningún script SQL a mano.
+
+Para bajar todo: `docker-compose down` (agrega `-v` si además quieres borrar los datos
+de Postgres).
+
+### Desarrollo local sin Docker (opcional)
+Si prefieres correr la API directo con Gradle mientras solo Postgres corre en Docker:
+
+```bash
+docker-compose up db
+./gradlew bootRun
+```
 
 ---
 
-## 2. Requisitos técnicos
+## 2. Arquitectura (N-Capas)
 
-### 2.1 Autenticación
+```
+com.uca.pncparcialfinalhotel/
+├── entities/          Capa de dominio (JPA): Sucursal, Habitacion, Usuario, Reserva, RefreshToken
+├── repository/         Acceso a datos: interfaces JpaRepository
+├── dto/                 Contratos de entrada/salida (request/response), desacoplados de las entidades
+├── service/             Lógica de negocio: reglas, validaciones, orquestación de repositorios
+├── controller/          Capa de presentación: endpoints REST, delega todo al service
+├── security/            JWT: generación/validación de tokens, filtro de autenticación
+├── configuration/        Configuración de Spring Security
+├── exception/            Excepciones de negocio + manejo centralizado de errores
+└── utils/                Mappers estáticos Entity ↔ DTO
+```
 
-- Login con usuario y contraseña, que devuelva un **Access Token (JWT)** y un **Refresh Token**.
-- El Access Token debe expirar en un tiempo corto (por ejemplo, 15 minutos) y el Refresh Token en un tiempo mayor (por ejemplo, 7 días).
-- Endpoint para renovar el Access Token usando el Refresh Token.
+- **Presentación** = `controller/` (nunca contiene lógica de negocio, solo arma la
+  respuesta y delega).
+- **Lógica de negocio** = `service/` (aquí viven las reglas: duplicados, disponibilidad,
+  fechas, y la regla de autorización por sucursal).
+- **Acceso a datos** = `repository/` + `entities/`.
 
-### 2.2 Roles y Autorización
+---
 
-Mínimo estos tres roles, con permisos claramente diferenciados:
+## 3. Roles y autorización
 
 | Rol | Permisos |
 |---|---|
-| Administrador | Acceso total: gestiona hoteles, habitaciones, usuarios y reservas de todas las sucursales |
-| Recepcionista | Gestiona reservas y disponibilidad, pero **únicamente de la sucursal a la que pertenece** |
-| Huésped/Cliente | Solo puede crear, ver y cancelar sus propias reservas |
+| `ADMINISTRADOR` | Acceso total: gestiona sucursales, habitaciones, usuarios y reservas de todas las sucursales. |
+| `RECEPCIONISTA` | Gestiona reservas y disponibilidad de habitaciones, **únicamente de la sucursal a la que pertenece**. |
+| `HUESPED` | Solo puede crear, ver y cancelar **sus propias** reservas. |
 
-### 2.3 Regla de negocio no trivial (obligatoria)
+El registro público (`POST /api/hotel/usuarios/register`) siempre crea usuarios con rol
+`HUESPED`, sin importar qué rol venga en el body — es una decisión de seguridad
+intencional (ver `REFLEXION.md`). Un `ADMINISTRADOR` autenticado es el único que puede
+crear otros administradores o recepcionistas, vía `POST /api/hotel/usuarios`.
 
-Además de la autorización básica por rol, quiero que implementen **una** de estas reglas (o me propongan una equivalente):
+### Regla de negocio no trivial implementada: Opción B — Autorización por atributo (sucursal)
 
-- **Opción A — Invalidación de tokens por cambio de contraseña:** si un usuario cambia su contraseña, todos los tokens emitidos previamente deben quedar inválidos de inmediato, aunque no hayan expirado. Quiero que me expliquen y justifiquen el mecanismo elegido (versión de token, blacklist, etc.).
-- **Opción B — Autorización por atributo, no solo por rol:** un Recepcionista solo puede confirmar, modificar o cancelar reservas de **su propia sucursal**. Esto no se resuelve solo verificando el rol; requiere lógica adicional que compare la sucursal del usuario autenticado contra la sucursal de la habitación/reserva.
-- **Opción C — Expiración forzada por inactividad:** si un Recepcionista no realiza ninguna petición autenticada durante X minutos, su sesión (refresh token) debe invalidarse automáticamente, incluso si el token aún no expiró.
+Un `RECEPCIONISTA` con el rol correcto NO puede automáticamente confirmar, editar o
+cancelar cualquier reserva/habitación: el sistema compara la sucursal asignada al
+usuario autenticado contra la sucursal del recurso puntual (habitación o reserva) que
+está intentando tocar. Si no coinciden, la API responde `403 Forbidden`.
 
-### 2.4 Docker
-
-- `Dockerfile` funcional para la API.
-- `docker-compose.yml` que levante la API junto con su base de datos.
-- El sistema debe levantarse con un solo comando (`docker-compose up`).
-
-### 2.5 CI/CD con GitHub Actions
-
-Realizar un pipeline de CI/CD de GitHub Actions, como mínimo:
-
-- Se ejecute automáticamente en cada `push` a la rama principal.
-- Compile/construya el proyecto.
-- Ejecute las pruebas, si existen.
-- Falle si se detecta una vulnerabilidad crítica o un secreto expuesto.
+Esta lógica vive en `service/AutorizacionRecursoService.java` y se aplica desde
+`HabitacionService` y `ReservaService` antes de cualquier operación de escritura.
+`@PreAuthorize` solo valida el ROL (¿es RECEPCIONISTA?); la sucursal específica se
+valida aparte, a nivel de servicio, porque `@PreAuthorize` no tiene forma de comparar
+la sucursal del usuario contra la sucursal del recurso sin cargarlo primero de la base
+de datos.
 
 ---
 
-## 3. Evidencia de uso de IA
+## 4. Autenticación JWT
 
-Como usaron IA durante todo el desarrollo, necesito ver el proceso, no solo el resultado. Estos entregables son tan importantes como el código en sí, y así los voy a calificar.
-
-### 3.1 Repositorio en GitHub
-
-Quiero un historial de commits real e incremental, no un solo commit de "Parcial final". Cada mensaje de commit debe explicar el cambio y, cuando aplique, por qué corrigieron algo que generó la IA. Por ejemplo: `fix: la IA generó autorización solo por rol; se agregó validación de sucursal en el middleware`.
-
-### 3.2 Archivo `PROMPTS.md`
-
-Una bitácora de todos los prompts relevantes que usaron, indicando:
-
-1. Herramienta de IA usada (ChatGPT, Claude, Copilot, etc.).
-2. El prompt exacto (o un resumen fiel si fue muy largo).
-3. Qué generó la IA (resumen).
-4. Qué tuvieron que corregir, rechazar o completar manualmente, y por qué.
-
-### 3.3 Documento de reflexión (`REFLEXION.md`)
-
-Quiero que me respondan con sus propias palabras:
-
-1. ¿Qué partes generó bien la IA sin necesidad de corrección?
-2. ¿Qué errores o decisiones incorrectas tomó la IA, especialmente en temas de seguridad?
-3. ¿Cómo detectaron esos errores y cómo los corrigieron?
-4. Si tuvieran que explicarle a un compañero cómo funciona el mecanismo de autorización por sucursal (o la regla de negocio que eligieron), ¿qué le dirían en 3-4 líneas?
-
-### 3.4 `README.md` del proyecto
-
-- Instrucciones claras para levantar el proyecto con Docker.
-- Explicación breve de las capas de la arquitectura.
-- Explicación de los roles y de la regla de negocio implementada.
+- `POST /api/hotel/auth/login` — recibe `username`/`password`, devuelve `accessToken`
+  (expira en 15 min) y `refreshToken` (expira en 7 días).
+- `POST /api/hotel/auth/refresh` — recibe el `refreshToken`, devuelve un `accessToken`
+  nuevo (el refresh token se reutiliza hasta que expire).
+- Todas las demás rutas requieren `Authorization: Bearer <accessToken>`.
 
 ---
 
-## 4. Rubrica
+## 5. Endpoints principales
 
-| Componente | Peso |
-|---|---|
-| Funcionalidad técnica (JWT, roles, Docker, CI/CD operativos) | 30% |
-| Implementación correcta de la regla de negocio no trivial | 20% |
-| Bitácora de prompts (`PROMPTS.md`) y calidad del proceso documentado | 30% |
-| Documento de reflexión (`REFLEXION.md`) | 10% |
-| Historial de commits (evidencia de proceso e iteración) | 10% |
-| **Total** | **100%** |
+| Método | Ruta | Rol requerido |
+|---|---|---|
+| POST | `/api/hotel/auth/login` | Público |
+| POST | `/api/hotel/auth/refresh` | Público |
+| POST | `/api/hotel/usuarios/register` | Público (siempre crea HUESPED) |
+| POST | `/api/hotel/usuarios` | ADMINISTRADOR |
+| POST/PUT/DELETE | `/api/hotel/sucursales/**` | ADMINISTRADOR |
+| GET | `/api/hotel/sucursales/**` | Cualquier autenticado |
+| POST/DELETE | `/api/hotel/habitaciones` | ADMINISTRADOR |
+| PUT | `/api/hotel/habitaciones/{id}` | ADMINISTRADOR o RECEPCIONISTA (de su sucursal) |
+| GET | `/api/hotel/habitaciones/**` | Cualquier autenticado |
+| POST | `/api/hotel/reservas` | HUESPED, RECEPCIONISTA o ADMINISTRADOR |
+| GET | `/api/hotel/reservas` (todas) | ADMINISTRADOR |
+| GET | `/api/hotel/reservas/huesped/{id}` | El propio HUESPED o ADMINISTRADOR |
+| GET | `/api/hotel/reservas/sucursal/{id}` | RECEPCIONISTA (de esa sucursal) o ADMINISTRADOR |
+| PATCH | `/api/hotel/reservas/{id}/confirmar` | RECEPCIONISTA (de esa sucursal) o ADMINISTRADOR |
+| PATCH | `/api/hotel/reservas/{id}/cancelar` | El propio HUESPED, RECEPCIONISTA (de esa sucursal) o ADMINISTRADOR |
 
 ---
 
-## 5. Penalizaciones
+## 6. Documentación de evidencia de uso de IA
 
-- Un solo commit, o commits sin mensajes descriptivos.
-- Un `PROMPTS.md` genérico, incompleto, o que no coincide con el código que entregaron.
-- Código funcional pero sin capacidad de explicar decisiones clave en la parte teórica; eso me indica que no hubo comprensión real del trabajo de la IA.
-- La regla de negocio no implementada, o implementada de forma genérica e incorrecta.
-
----
-
-## 6. Para cerrar
-
-No quiero medir si son capaces de escribir JWT de memoria. Quiero ver si son capaces de usar IA de forma crítica y responsable en un contexto de seguridad, donde los errores tienen consecuencias reales. Usen la IA, pero verifiquen, cuestionen y entiendan todo lo que les entregue. Cualquier duda sobre el alcance del proyecto, pregúntenme antes de la entrega.
+- `PROMPTS.md` — bitácora de prompts usados durante el desarrollo.
+- `REFLEXION.md` — reflexión sobre el proceso, aciertos y errores de la IA.
